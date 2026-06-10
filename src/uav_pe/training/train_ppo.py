@@ -23,7 +23,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from Code.RL_residual.scripts.residual_action_head_policy import ResidualActionHeadPolicy
 from RL_residual.scripts.airsim_env import AirSimUAVTrainEnv
 from Executor.core import TrajectoryExecutor
-from Train_qwen.core.instruction_generator import generate_system_prompt, generate_user_prompt
+from uav_pe.data.instruction_generator import generate_system_prompt, generate_user_prompt
 from Val.scripts.offline_validate_policy import load_model_like_validate  # message/message，message key message
 
 from peft import LoraConfig, get_peft_model
@@ -1204,5 +1204,4 @@ if __name__ == "__main__":
         print(f"[RL] message\n")
     else:
         run_ppo_training(args)
-
 

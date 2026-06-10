@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from Executor.core import TrajectoryExecutor
 from Train_qwen.core.action_mapping import norm_action_to_physical, physical_action_to_norm
-from Train_qwen.core.instruction_generator import generate_system_prompt, generate_user_prompt
+from uav_pe.data.instruction_generator import generate_system_prompt, generate_user_prompt
 from Train_qwen.core.train import save_instruction_jsons_for_dataset
 from Val.scripts.offline_validate_policy import load_model_like_validate
 from Val.scripts.closed_loop_airsim_test import policy_step

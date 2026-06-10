@@ -24,8 +24,8 @@ ckpt/
 *.bin
 
 # Data
-data/
-datasets/
+/data/
+/datasets/
 
 # IDE
 .vscode/

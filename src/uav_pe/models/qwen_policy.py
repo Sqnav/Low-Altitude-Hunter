@@ -10,7 +10,14 @@ from transformers import (
 )
 from transformers.utils import ModelOutput
 
-from Train_qwen.core.action_mapping import norm_action_to_physical
+try:
+    from uav_pe.models.action_mapping import norm_action_to_physical
+except Exception:
+    from Train_qwen.core.action_mapping import norm_action_to_physical
+try:
+    from uav_pe.data.instruction_generator import NUM_STATE_DIM
+except Exception:
+    NUM_STATE_DIM = 24
 warnings.filterwarnings("ignore", message=".*tokenizer has new PAD/BOS/EOS tokens.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*The tokenizer has new PAD/BOS/EOS tokens.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*model config and generation config.*", category=UserWarning)
@@ -145,7 +152,7 @@ class UAVQwen3VLModel(nn.Module):
         
         self.use_numeric_encoder = use_numeric_encoder
         if use_numeric_encoder:
-            self.num_dim = 3
+            self.num_dim = NUM_STATE_DIM
             self.num_hidden_dim = 128
             self.numeric_encoder = nn.Sequential(
                 nn.Linear(self.num_dim, 64),

@@ -21,9 +21,7 @@ from Train_qwen.core.action_mapping import norm_action_to_physical
 from Train_qwen.core.step0_debug_utils import (
     get_action_head_input_from_backbone_outputs,
 )
-from Train_qwen.core.instruction_generator import (
-    compute_instruction_numeric_state,
-)
+from uav_pe.data.instruction_generator import compute_instruction_numeric_state
 from Val.scripts.closed_loop_airsim import (
     load_uav_and_target_trajectories,
     apply_action_to_uav,
@@ -78,6 +76,7 @@ class AirSimUAVTrainEnv(gym.Env):
         self.reward_progress_scale = reward_progress_scale
         self._last_phys_action = (0.0, 0.0, 0.0, 0.0)
         self._last_target_pos_airsim = None
+        self._trajectory_history_airsim = []
         self._backbone_weight_checked = False
         self._max_steps_cap = int(max_steps) if max_steps is not None else None
         self._max_steps_ratio = float(max_steps_ratio) if max_steps_ratio is not None else None
@@ -193,9 +192,18 @@ class AirSimUAVTrainEnv(gym.Env):
 
         system_prompt = self.model_dict["generate_system_prompt"]()
         uav_pos = uav_state["position"]
+        current_uav_pos = [float(uav_pos[0]), float(uav_pos[1]), float(uav_pos[2])]
+        current_target_pos = [float(target_pos_airsim[0]), float(target_pos_airsim[1]), float(target_pos_airsim[2])]
+        if not self._trajectory_history_airsim:
+            self._trajectory_history_airsim.append(current_target_pos)
+        elif np.linalg.norm(
+            np.asarray(self._trajectory_history_airsim[-1], dtype=np.float32)
+            - np.asarray(current_target_pos, dtype=np.float32)
+        ) > 1e-4:
+            self._trajectory_history_airsim.append(current_target_pos)
         user_text = self.model_dict["generate_user_prompt"](
-            uav_position_airsim=[float(uav_pos[0]), float(uav_pos[1]), float(uav_pos[2])],
-            target_position_airsim=[float(target_pos_airsim[0]), float(target_pos_airsim[1]), float(target_pos_airsim[2])],
+            uav_position_airsim=current_uav_pos,
+            target_position_airsim=current_target_pos,
             quaternion=[float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])],
             prev_action=list(self._last_phys_action),
             target_position_airsim_prev=list(self._last_target_pos_airsim) if self._last_target_pos_airsim is not None else None,
@@ -272,13 +280,15 @@ class AirSimUAVTrainEnv(gym.Env):
 
                 if use_numeric_encoder:
                     num_state_tuple = compute_instruction_numeric_state(
-                        uav_position_airsim=[float(uav_pos[0]), float(uav_pos[1]), float(uav_pos[2])],
-                        target_position_airsim=[float(target_pos_airsim[0]), float(target_pos_airsim[1]), float(target_pos_airsim[2])],
+                        uav_position_airsim=current_uav_pos,
+                        target_position_airsim=current_target_pos,
                         quaternion=[float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])],
                         prev_action=list(self._last_phys_action),
                         target_position_airsim_prev=list(self._last_target_pos_airsim)
                         if self._last_target_pos_airsim is not None else None,
                         dt=1.0,
+                        trajectory_history_airsim=list(self._trajectory_history_airsim),
+                        uav_start_airsim=list(np.asarray(self._uav_start_airsim, dtype=np.float32)),
                     )
                     num_state_arr = np.asarray(num_state_tuple, dtype=np.float32).reshape(1, -1)
                     num_state_tensor = torch.from_numpy(num_state_arr).to(
@@ -585,6 +595,7 @@ class AirSimUAVTrainEnv(gym.Env):
             self.current_step = 0
             self._last_phys_action = (0.0, 0.0, 0.0, 0.0)
             self._last_target_pos_airsim = self._last_target_pos_airsim if self._last_target_pos_airsim is not None else None
+            self._trajectory_history_airsim = []
             return self._get_obs_state(), {}
 
         uav_traj_file = (
@@ -615,7 +626,6 @@ class AirSimUAVTrainEnv(gym.Env):
         self.current_step = 0
         self._last_phys_action = (0.0, 0.0, 0.0, 0.0)
         self._last_target_pos_airsim = None
+        self._trajectory_history_airsim = [list(np.asarray(self.target_traj_airsim[0], dtype=np.float32))]
         self.executor.move_target_object(self.target_traj_airsim[1])
         return self._get_obs_state(), {}
-
-

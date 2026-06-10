@@ -15,6 +15,9 @@ import msgpackrpc
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 CODE_ROOT = PROJECT_ROOT / "Code"
 if str(CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(CODE_ROOT))
@@ -181,7 +184,7 @@ def load_model(
     print("name_or_path    =", getattr(model.backbone.config, "_name_or_path", None))
     p = next(model.backbone.parameters()).detach().flatten()[:5].cpu()
     print("first5 params   =", p)
-    from Train_qwen.core.instruction_generator import generate_system_prompt, generate_user_prompt
+    from uav_pe.data.instruction_generator import generate_system_prompt, generate_user_prompt
     return {
         "model": model,
         "processor": processor or getattr(model, "processor", None),
@@ -198,7 +201,7 @@ def policy_step(
 ) -> Tuple[np.ndarray, str]:
     import torch
     from PIL import Image
-    from Train_qwen.core.instruction_generator import compute_instruction_numeric_state
+    from uav_pe.data.instruction_generator import compute_instruction_numeric_state
     
     model = model_dict['model']
     processor = model_dict.get('processor') or getattr(model, "processor", None)
@@ -316,6 +319,8 @@ def policy_step(
                 prev_action=prev_action,
                 target_position_airsim_prev=obs.get("target_position_airsim_prev"),
                 dt=1.0,
+                trajectory_history_airsim=obs.get("trajectory_history_airsim"),
+                uav_start_airsim=obs.get("uav_start_airsim"),
             )
             first_param = next(model.backbone.parameters())
             num_state = torch.tensor(
@@ -732,6 +737,7 @@ def run_closed_loop_test(
         last_phys_action = (0.0, 0.0, 0.0, 0.0)
         last_target_pos_airsim = None
         last_user_prompt_text = ""
+        trajectory_history_airsim: List[List[float]] = []
         for step_idx in step_iter:
             target_pos_cmd = movement_traj_airsim[step_idx]
             executor.move_target_object(target_pos_cmd)
@@ -751,14 +757,22 @@ def run_closed_loop_test(
                 executor.save_frame_data(step_idx, rgb_img, depth_img, str(output_path))
             quat = uav_state["orientation"]  # [w, x, y, z]
             uav_pos = uav_state["position"]
+            current_uav_pos = [float(uav_pos[0]), float(uav_pos[1]), float(uav_pos[2])]
+            current_target_pos = [float(target_pos[0]), float(target_pos[1]), float(target_pos[2])]
+            if not trajectory_history_airsim:
+                trajectory_history_airsim.append(current_target_pos)
+            elif np.linalg.norm(np.asarray(trajectory_history_airsim[-1], dtype=np.float32) - np.asarray(current_target_pos, dtype=np.float32)) > 1e-4:
+                trajectory_history_airsim.append(current_target_pos)
             obs: Dict[str, Any] = {
                 "rgb": rgb_img,
-                "uav_position_airsim": [float(uav_pos[0]), float(uav_pos[1]), float(uav_pos[2])],
-                "target_position_airsim": [float(target_pos[0]), float(target_pos[1]), float(target_pos[2])],
+                "uav_position_airsim": current_uav_pos,
+                "target_position_airsim": current_target_pos,
                 "target_position_airsim_prev": list(last_target_pos_airsim) if last_target_pos_airsim is not None else None,
                 "quaternion": [float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])],
                 "previous_action": list(last_phys_action),
                 "is_first_frame": (step_idx == 0),
+                "trajectory_history_airsim": list(trajectory_history_airsim),
+                "uav_start_airsim": list(np.asarray(init_uav_state["position"], dtype=np.float32)),
             }
             norm_action, user_prompt_text = policy_step(model, obs, debug_save_path=None)
             last_user_prompt_text = user_prompt_text

@@ -31,7 +31,11 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint
 
-from Train_qwen.core.instruction_generator import generate_system_prompt, generate_user_prompt, compute_instruction_numeric_state
+from uav_pe.data.instruction_generator import (
+    compute_instruction_numeric_state,
+    generate_system_prompt,
+    generate_user_prompt,
+)
 
 try:
     import swanlab
@@ -74,6 +78,35 @@ if "TQDM_DISABLE" not in os.environ:
 
 torch.manual_seed(42)
 np.random.seed(42)
+
+
+def _airsim_pos_from_saved(pos: Dict[str, float]) -> Dict[str, float]:
+    return {
+        "x": float(pos["x"]),
+        "y": float(pos["y"]),
+        "z": -float(pos["z"]),
+    }
+
+
+def _trajectory_history_airsim_from_frames(trajectory_list: List[Dict], end_idx: int) -> List[Dict[str, float]]:
+    history: List[Dict[str, float]] = []
+    if not trajectory_list:
+        return history
+    end_idx = max(0, min(int(end_idx), len(trajectory_list) - 1))
+    for frame in trajectory_list[: end_idx + 1]:
+        pos = frame.get("target_position") if isinstance(frame, dict) else None
+        if not pos:
+            continue
+        history.append(_airsim_pos_from_saved(pos))
+    return history
+
+
+def _uav_start_airsim_from_frames(trajectory_list: List[Dict], fallback: Dict[str, float]) -> Dict[str, float]:
+    if trajectory_list:
+        pos = trajectory_list[0].get("uav_position") if isinstance(trajectory_list[0], dict) else None
+        if pos:
+            return _airsim_pos_from_saved(pos)
+    return fallback
 
 @dataclass
 class DataArguments:
@@ -386,6 +419,9 @@ class UAVQwen3VLDataset(Dataset):
                     "traj_id": torch.tensor(traj_id, dtype=torch.long),
                 }
                 if self.use_numeric_encoder:
+                    trajectory_history_airsim = _trajectory_history_airsim_from_frames(
+                        trajectory_list, current_frame_idx
+                    )
                     num_vals = compute_instruction_numeric_state(
                         uav_position_airsim=uav_pos,
                         target_position_airsim=target_pos_airsim,
@@ -393,6 +429,8 @@ class UAVQwen3VLDataset(Dataset):
                         prev_action=prev_action,
                         target_position_airsim_prev=target_pos_airsim_prev,
                         dt=1.0,
+                        trajectory_history_airsim=trajectory_history_airsim,
+                        uav_start_airsim=_uav_start_airsim_from_frames(trajectory_list, uav_pos),
                     )
                     out["num_state"] = torch.tensor(num_vals, dtype=torch.float32)
                 return out
